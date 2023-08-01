@@ -14,15 +14,23 @@ import {
 } from './const'
 
 
-export function getRouteMap(segments: SegmentInfo[], replaceVariable?: string | undefined, variableChar?: string | undefined): string[] {
+export function getRouteMap(
+    segments: SegmentInfo[],
+    variableTemplate?: string | undefined,
+    optionalVariableTemplate?: string | undefined,
+    includeDelimiter?: boolean | false
+): string[] {
+    if (!variableTemplate) variableTemplate = ':{{VAL}}'
+    if (!optionalVariableTemplate) optionalVariableTemplate = ':{{VAL}}?'
     let routeMap: string[] = []
     let chunk: string[] = []
 
     for (const segment of segments) {
         if (segment.type === SegmentType.IGNORE) continue
-        if (segment.type === SegmentType.OPTIONAL_PARAM) replaceVariable ? chunk.push(replaceVariable) : chunk.push(`${variableChar ?? ':'}(${segment.value})`)
-        if (segment.type === SegmentType.PARAM) replaceVariable ? chunk.push(replaceVariable) : chunk.push(`${variableChar ?? ':'}${segment.value}`)
+        if (segment.type === SegmentType.OPTIONAL_PARAM) chunk.push(optionalVariableTemplate.replace('{{VAL}}', segment.value))
+        if (segment.type === SegmentType.PARAM) chunk.push(variableTemplate.replace('{{VAL}}', segment.value))
         if (segment.type === SegmentType.PLAIN) chunk.push(segment.value)
+        if (segment.type === SegmentType.DELIMITER && includeDelimiter) chunk.push(segment.value === path.sep ? '/' : segment.value)
         if (segment.type === SegmentType.DELIMITER) routeMap.push(chunk.join('')), chunk = []
     }
 
@@ -34,19 +42,21 @@ export function getRouteMap(segments: SegmentInfo[], replaceVariable?: string | 
 
 // for internal use, catches duplicate routes
 export function getFileId(segments: SegmentInfo[]): string {
-    let map = getRouteMap(segments, pathIdVariableHolder)
+    let map = getRouteMap(segments, pathIdVariableHolder, pathIdVariableHolder)
+    // if last element is index or _index, remove it
+    if (map[map.length - 1] === 'index' || map[map.length - 1] === '_index') map.pop()
+
     return map.join('/')
 }
 
 // for useRouteLoaderData hook, keeps the route id consistent with filenames
-export function getLoaderId(segments: SegmentInfo[]): string {
-    let map = getRouteMap(segments, undefined, '$')
-    return map.join('/')
+export function getLoaderId(segments: SegmentInfo[], routeDir?: string | ''): string {
+    return (routeDir ? (routeDir + '/') : '') + getRouteMap(segments, '${{VAL}}', '(${{VAL}})', true).join('')
 }
 
 // for the web address that the browser sees
 export function getRoutePath(segments: SegmentInfo[]): string {
-    let map = getRouteMap(segments)
+    let map = getRouteMap(segments, ':{{VAL}}', ':{{VAL}}?')
     // if last element is index or _index, remove it
     if (map[map.length - 1] === 'index' || map[map.length - 1] === '_index') map.pop()
 
@@ -55,6 +65,24 @@ export function getRoutePath(segments: SegmentInfo[]): string {
 
     return map.join('/')
 }
+
+export function stripDoubleDelimiters(segments: SegmentInfo[]): SegmentInfo[] {
+    let newSegments: SegmentInfo[] = []
+    let lastSegment: SegmentInfo | undefined = undefined
+
+    for (const segment of segments) {
+        if (segment.type === SegmentType.DELIMITER && lastSegment && lastSegment.type === SegmentType.DELIMITER) continue
+        newSegments.push(segment)
+        lastSegment = segment
+    }
+
+    return newSegments
+}
+
+export function stripSegmentTypes(segments: SegmentInfo[], types: SegmentType[]): SegmentInfo[] {
+    return segments.filter(segment => !types.includes(segment.type))
+}
+
 
 export function recursivelyFindFiles(
     dir: string,
@@ -217,11 +245,11 @@ export const adoptRoutes = (routes: RouteInfo[]): RouteInfo[] => {
         let parentCandidate = undefined;
         let segments = route.segments.slice(0);
         while (segments.length !== 0 && !parentCandidate) {
-            segments.pop();
             const layoutId = getFileId([
                 ...segments,
                 { value: '_layout', type: SegmentType.PLAIN } as SegmentInfo
             ])
+            segments.pop();
 
             parentCandidate = routes.find(r => (r.fileId === layoutId && r.fileId !== route.fileId));
         }
@@ -236,4 +264,20 @@ export const adoptRoutes = (routes: RouteInfo[]): RouteInfo[] => {
     }
 
     return routes;
+}
+
+
+export const hasConflictingRoutes = (thisSegments: SegmentInfo[], map: Map<string, RouteInfo>): boolean => {
+
+    const fileId = getFileId(thisSegments);
+    const fileIdNoVars = getFileId(
+        stripDoubleDelimiters(
+            stripSegmentTypes(thisSegments, [SegmentType.OPTIONAL_PARAM])
+        )
+    )
+
+    if (map.has(fileId)) return true;
+    if (map.has(fileIdNoVars)) return true;
+
+    return false;
 }

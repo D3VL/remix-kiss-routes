@@ -47,4 +47,5 @@ export type RouteInfo = {
     layout?: boolean // true if this is a layout route (i.e. "/dashboard/_layout.tsx")
     index?: boolean // true if this is an index route (i.e. "/dashboard/index.tsx")
     parent?: RouteInfo // the parent route, if any
+    routeDir?: string // the directory this route was found in
 }

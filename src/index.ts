@@ -13,7 +13,8 @@ import {
     getFileId,
     getRoutePath,
     adoptRoutes,
-    getLoaderId
+    getLoaderId,
+    hasConflictingRoutes
 } from './utils'
 
 import {
@@ -26,68 +27,75 @@ import * as path from 'path'
 
 export default function kissRoutes(
     appDir: string,
-    routeDir: string,
+    routeDirs: string[] | string | ['routes']
 ): RouteManifest | undefined {
 
-    const routeMap: Map<string, RouteInfo> = new Map()
+    if (typeof routeDirs === 'string') routeDirs = [routeDirs]
+    if (!routeDirs.length) routeDirs = ['routes']
 
-    const files = [];
+    const routeMap = new Map() as Map<string, RouteInfo>;
 
-    const folder = path.join(appDir, routeDir)
-    const found = recursivelyFindFiles(folder, [], 10, 0)
-        .map(filePath => path.relative(folder, filePath)) // get relative path
-        .filter(filePath => filePath.match(serverRegex) === null) // remove server files
-        .filter(filePath => routeModuleExts.includes(path.extname(filePath))); // remove non-route files
+    for (const routeDir of routeDirs) {
 
+        const folder = path.join(appDir, routeDir)
+        const files = recursivelyFindFiles(folder, [], 10, 0)
+            .map(filePath => path.relative(folder, filePath)) // get relative path
+            .filter(filePath => filePath.match(serverRegex) === null) // remove server files
+            .filter(filePath => routeModuleExts.includes(path.extname(filePath))); // remove non-route files
 
-    if (found.length) files.push(...found)
-    else throw new Error(`No routes found in ${routeDir}`)
+        if (!files.length) throw new Error(`No routes found in ${routeDir}`)
 
-    for (const file of files) {
+        for (const file of files) {
 
-        // get the sections from the File
-        const routeSegments = getRouteSegments(file);
-        const lastSegment = routeSegments[routeSegments.length - 1];
-        const routeInfo = {
-            fileId: getFileId(routeSegments),
-            filePath: path.join(routeDir, file),
-            urlPath: `/${getRoutePath(routeSegments)}`,
-            segments: routeSegments,
-            layout: (lastSegment.value === '_layout'),
-            index: (lastSegment.value.match(indexRouteRegex) !== null),
-            parentId: undefined,
-            children: [],
-        } as RouteInfo;
+            // get the sections from the File
+            const routeSegments = getRouteSegments(file);
+            const lastSegment = routeSegments[routeSegments.length - 1];
 
-        // check if routeMap already has a routeInfo with the same file|Id
-        if (routeMap.has(routeInfo.fileId)) {
-            throw new Error(`⚠️ Duplicate route found: ${routeInfo.filePath}`);
+            if (hasConflictingRoutes(routeSegments, routeMap)) {
+                throw new Error(`⚠️   Conflicting route found: ${path.join(routeDir, file)}`);
+            }
+
+            const routeInfo = {
+                fileId: getFileId(routeSegments),
+                filePath: path.join(routeDir, file),
+                urlPath: `/${getRoutePath(routeSegments)}`,
+                segments: routeSegments,
+                layout: (lastSegment.value === '_layout'),
+                index: (lastSegment.value.match(indexRouteRegex) !== null),
+                routeDir
+            } as RouteInfo;
+
+            routeMap.set(routeInfo.fileId, routeInfo);
         }
-
-        routeMap.set(routeInfo.fileId, routeInfo);
     }
 
     // const entry = nestRoutes(Array.from(routeMap.values()));
     const adoptedRoutes = adoptRoutes(Array.from(routeMap.values()));
 
     // map our nestedLayouts to ConfigRoute 
-    const manifest: RouteManifest = {};
+    const manifest = {} as RouteManifest;
 
     for (const routeInfo of adoptedRoutes) {
         const relativePath = routeInfo.urlPath
             .slice((routeInfo.parent?.urlPath ?? '').length) // remove parent path
             .replace(/^\//, ''); // remove leading slash
-        const parentId = routeInfo.parent?.segments ? getLoaderId(routeInfo.parent.segments) : 'root';
-        const route: ConfigRoute = {
+
+        const parentId = routeInfo.parent?.segments.length
+            ? getLoaderId(routeInfo.parent.segments, routeInfo.parent.routeDir)
+            : 'root';
+
+        const loaderId = getLoaderId(routeInfo.segments, routeInfo.routeDir);
+
+        const route = {
             path: relativePath,
             index: routeInfo.index,
             caseSensitive: false,
-            id: routeInfo.fileId,
-            parentId,
+            id: loaderId,
+            parentId: parentId ?? 'root',
             file: routeInfo.filePath,
-        }
+        } as ConfigRoute;
 
-        manifest[getLoaderId(routeInfo.segments)] = route;
+        manifest[loaderId] = route;
     }
 
     return manifest

@@ -64,13 +64,13 @@ const { kissRoutes } = require('remix-kiss-routes');
 
 /** @type {import('@remix-run/dev').AppConfig} */
 module.exports = {
+    ignoredRouteFiles: ["**/*"],
     routes: async defineRoutes => {
-        return kissRoutes('./app', 'routes');
+        return kissRoutes('./app', ['routes']);
     },
 }
 ```
 
 Parameters:
 - `appDir` - The root directory of your app, this is where your `root.jsx` file is located.
-- `routesDir` - The directory containing your routes, this is relative to `appDir`.
-
+- `routeDirs` - The directory containing your routes, this is relative to `appDir`. single path string, or array of paths. Defaults to `routes`.

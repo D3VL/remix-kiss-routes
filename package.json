@@ -1,6 +1,6 @@
 {
     "name": "remix-kiss-routes",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "description": "Build cleanly structured routes for Remix using folders.",
     "main": "dist/index.js",
     "files": [
