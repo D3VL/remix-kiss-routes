@@ -242,25 +242,25 @@ export const getRouteSegments = (_path: string): SegmentInfo[] => {
 export const adoptRoutes = (routes: RouteInfo[]): RouteInfo[] => {
 
     for (const route of routes) {
-        let parentCandidate = undefined;
         let segments = route.segments.slice(0);
-        while (segments.length !== 0 && !parentCandidate) {
+        while (!route.parent) {
             const layoutId = getFileId([
                 ...segments,
                 { value: '_layout', type: SegmentType.PLAIN } as SegmentInfo
             ])
+            route.parent = routes.find(r => (r.fileId === layoutId && r.fileId !== route.fileId));
+
+            if (segments.length === 0 && !route.parent) {
+                route.parent = {
+                    fileId: 'root',
+                    filePath: '',
+                    urlPath: '',
+                    segments: [],
+                } as RouteInfo
+            }
+
             segments.pop();
-
-            parentCandidate = routes.find(r => (r.fileId === layoutId && r.fileId !== route.fileId));
         }
-
-        // set the parent 
-        route.parent = parentCandidate ?? {
-            fileId: 'root',
-            filePath: '',
-            urlPath: '',
-            segments: [],
-        } as RouteInfo;
     }
 
     return routes;
