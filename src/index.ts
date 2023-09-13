@@ -1,104 +1,98 @@
-import type {
-    RouteManifest,
-    ConfigRoute
-} from '@remix-run/dev/dist/config/routes'
+// concepts
+// _layout.tsx files define the layout of the page, they should contain a <Outlet /> component where child routes are rendered.
+// index.tsx files are dedicated for index routes
+// $ is used to define dynamic routes, for example /blog/$slug will match /blog/hello-world and /blog/another-post
+// + suffix is used to squish out a folder, i.e. make it invisible to the route, for example /legal-pages+/privacy-policy will match /privacy-policy 
+// . is used to define virtual folders, for example /users.$id.edit will match /users/123/edit
+// [] is used to escape special characters, for example /make-[$$$]-fast-online will match /make-$$$-fast-online
+// files not ending in .tsx, .jsx, .ts, .js are ignored, allowing you to keep assets and other files in the same folder as your routes.
 
-import type {
-    RouteInfo
-} from './types'
+import { DefineRouteFunction } from "@remix-run/dev/dist/config/routes"
+import { adoptRoutes, getCollisionHash, getRouteId, getRoutePath, getRouteSegments, recursivelyFindFiles } from "./utils"
+import { InternalConfigRoute, RemixKissRoutesOptions, SegmentInfo } from "./types"
+import path from "path"
 
-import {
-    recursivelyFindFiles,
-    getRouteSegments,
-    getFileId,
-    getRoutePath,
-    adoptRoutes,
-    getLoaderId,
-    hasConflictingRoutes
-} from './utils'
+const defaultOptions: RemixKissRoutesOptions = {
+    app: './app',
+    routes: 'routes',
+    caseSensitive: false,
+    variableCharacter: '$',
+    flattenCharacter: '+',
+    delimiterCharacter: '.',
+    layoutFileName: '_layout',
+    indexFileName: 'index',
+}
 
-import {
-    indexRouteRegex,
-    routeModuleExts,
-    serverRegex,
-} from './const'
+export type DefineRoutesFunction = (
+    callback: (route: DefineRouteFunction) => void,
+) => any
 
-import * as path from 'path'
+const routeModuleExts = ['.js', '.jsx', '.ts', '.tsx', '.md', '.mdx']
+const serverRegex = /\.server\.(ts|tsx|js|jsx|md|mdx)$/
 
-export default function kissRoutes(
-    appDir: string,
-    routeDirs: string[] | string | ['routes']
-): RouteManifest | undefined {
+export default function kissRoutes(defineRoutes: DefineRoutesFunction, userOptions?: RemixKissRoutesOptions): void {
 
-    if (typeof routeDirs === 'string') routeDirs = [routeDirs]
-    if (!routeDirs.length) routeDirs = ['routes']
+    const options = { ...defaultOptions, ...userOptions } as RemixKissRoutesOptions;
+    const files = recursivelyFindFiles(path.join(options.app, options.routes))
+        .map(filePath => path.relative(options.app, filePath)) // make paths relative to app
+        .filter(filePath => filePath.match(serverRegex) === null) // remove server files
+        .filter(filePath => routeModuleExts.includes(path.extname(filePath))); // remove non-route files
 
-    const routeMap = new Map() as Map<string, RouteInfo>;
+    const configRoutes = new Map<string, InternalConfigRoute>();
 
-    for (const routeDir of routeDirs) {
+    for (const file of files) {
+        const routeSegments = getRouteSegments(file, options);
+        const lastSegment = routeSegments[routeSegments.length - 1];
+        const isIndex = lastSegment?.value === options.indexFileName;
+        const isLayout = lastSegment?.value === options.layoutFileName;
+        const collisionHash = getCollisionHash(Array.from(routeSegments));
 
-        const folder = path.join(appDir, routeDir)
-        const files = recursivelyFindFiles(folder, [], 10, 0)
-            .map(filePath => path.relative(folder, filePath)) // get relative path
-            .filter(filePath => filePath.match(serverRegex) === null) // remove server files
-            .filter(filePath => routeModuleExts.includes(path.extname(filePath))); // remove non-route files
+        // check for collisions
+        if (configRoutes.has(collisionHash)) {
+            throw new Error(`Conflicting route found: ${file} <-> ${configRoutes.get(collisionHash)?.file}`);
+        }
 
-        if (!files.length) throw new Error(`No routes found in ${routeDir}`)
+        configRoutes.set(collisionHash, {
+            path: isLayout ? undefined : getRoutePath(Array.from(routeSegments), options).replace(/^\//, ''),
+            index: isIndex,
+            caseSensitive: options.caseSensitive,
+            id: getRouteId(Array.from(routeSegments)),
+            parentId: undefined,
+            file,
+            // custom 
+            isLayout,
+            segments: Array.from(routeSegments),
+            collisionHash,
+        } as InternalConfigRoute);
+    }
 
-        for (const file of files) {
+    const adopted = adoptRoutes(Array.from(configRoutes.values()));
 
-            // get the sections from the File
-            const routeSegments = getRouteSegments(file);
-            const lastSegment = routeSegments[routeSegments.length - 1];
+    const doDefineRoutes = (defineRoute: DefineRouteFunction, parentId?: string) => {
+        const parent = adopted.find(route => route.id === parentId) ?? {
+            id: 'root',
+            path: undefined,
+            parentId: undefined,
+            collisionHash: 'root',
+            segments: [] as SegmentInfo[],
+            isLayout: false,
+        } as InternalConfigRoute;
 
-            if (hasConflictingRoutes(routeSegments, routeMap)) {
-                throw new Error(`⚠️   Conflicting route found: ${path.join(routeDir, file)}`);
-            }
+        const routes = adopted.filter(route => route.parentId === parent.id);
 
-            const routeInfo = {
-                fileId: getFileId(routeSegments),
-                filePath: path.join(routeDir, file),
-                urlPath: `/${getRoutePath(routeSegments)}`,
-                segments: routeSegments,
-                layout: (lastSegment.value === '_layout'),
-                index: (lastSegment.value.match(indexRouteRegex) !== null),
-                routeDir
-            } as RouteInfo;
+        for (const route of routes) {
+            const relativePath = parent ? route?.path?.slice((parent?.path ?? '').length) : route.path ?? route.path;
 
-            routeMap.set(routeInfo.fileId, routeInfo);
+            defineRoute(relativePath, route.file, {
+                caseSensitive: route.caseSensitive,
+                index: route.index,
+            }, () => {
+                doDefineRoutes(defineRoute, route.id);
+            })
         }
     }
 
-    // const entry = nestRoutes(Array.from(routeMap.values()));
-    const adoptedRoutes = adoptRoutes(Array.from(routeMap.values()));
-
-    // map our nestedLayouts to ConfigRoute 
-    const manifest = {} as RouteManifest;
-
-    for (const routeInfo of adoptedRoutes) {
-        const relativePath = routeInfo.urlPath
-            .slice((routeInfo.parent?.urlPath ?? '').length) // remove parent path
-            .replace(/^\//, ''); // remove leading slash
-
-        const parentId = routeInfo.parent?.segments.length
-            ? getLoaderId(routeInfo.parent.segments, routeInfo.parent.routeDir)
-            : 'root';
-
-        const loaderId = getLoaderId(routeInfo.segments, routeInfo.routeDir);
-
-        const route = {
-            path: relativePath,
-            index: routeInfo.index,
-            caseSensitive: false,
-            id: loaderId,
-            parentId: parentId ?? 'root',
-            file: routeInfo.filePath,
-        } as ConfigRoute;
-
-        manifest[loaderId] = route;
-    }
-
-    return manifest
+    return defineRoutes(doDefineRoutes)
 }
-export { kissRoutes }
 
+export { kissRoutes }

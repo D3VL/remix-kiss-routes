@@ -1,92 +1,11 @@
 import * as fs from 'fs'
 import * as path from 'path'
+import { InternalConfigRoute, RemixKissRoutesOptions, SegmentInfo, SegmentType, parserChar, parserState } from './types'
 
-import {
-    RouteInfo,
-    parserState,
-    parserChar,
-    SegmentInfo,
-    SegmentType,
-} from './types'
-
-import {
-    pathIdVariableHolder
-} from './const'
-
-
-export function getRouteMap(
-    segments: SegmentInfo[],
-    variableTemplate?: string | undefined,
-    optionalVariableTemplate?: string | undefined,
-    includeDelimiter?: boolean | false
-): string[] {
-    if (!variableTemplate) variableTemplate = ':{{VAL}}'
-    if (!optionalVariableTemplate) optionalVariableTemplate = ':{{VAL}}?'
-    let routeMap: string[] = []
-    let chunk: string[] = []
-
-    for (const segment of segments) {
-        if (segment.type === SegmentType.IGNORE) continue
-        if (segment.type === SegmentType.OPTIONAL_PARAM) chunk.push(optionalVariableTemplate.replace('{{VAL}}', segment.value))
-        if (segment.type === SegmentType.PARAM) chunk.push(variableTemplate.replace('{{VAL}}', segment.value))
-        if (segment.type === SegmentType.PLAIN) chunk.push(segment.value)
-        if (segment.type === SegmentType.DELIMITER && includeDelimiter) chunk.push(segment.value === path.sep ? '/' : segment.value)
-        if (segment.type === SegmentType.DELIMITER) routeMap.push(chunk.join('')), chunk = []
-    }
-
-    // push the last chunk
-    routeMap.push(chunk.join(''))
-
-    return routeMap
-}
-
-// for internal use, catches duplicate routes
-export function getFileId(segments: SegmentInfo[]): string {
-    let map = getRouteMap(segments, pathIdVariableHolder, pathIdVariableHolder)
-    // if last element is index or _index, remove it
-    if (map[map.length - 1] === 'index' || map[map.length - 1] === '_index') map.pop()
-
-    return map.join('/')
-}
-
-// for useRouteLoaderData hook, keeps the route id consistent with filenames
-export function getLoaderId(segments: SegmentInfo[], routeDir?: string | ''): string {
-    return (routeDir ? (routeDir + '/') : '') + getRouteMap(segments, '${{VAL}}', '(${{VAL}})', true).join('')
-}
-
-// for the web address that the browser sees
-export function getRoutePath(segments: SegmentInfo[]): string {
-    let map = getRouteMap(segments, ':{{VAL}}', ':{{VAL}}?')
-    // if last element is index or _index, remove it
-    if (map[map.length - 1] === 'index' || map[map.length - 1] === '_index') map.pop()
-
-    // if last element is _layout return empty string
-    if (map[map.length - 1] === '_layout') map.pop()
-
-    return map.join('/')
-}
-
-export function stripDoubleDelimiters(segments: SegmentInfo[]): SegmentInfo[] {
-    let newSegments: SegmentInfo[] = []
-    let lastSegment: SegmentInfo | undefined = undefined
-
-    for (const segment of segments) {
-        if (segment.type === SegmentType.DELIMITER && lastSegment && lastSegment.type === SegmentType.DELIMITER) continue
-        newSegments.push(segment)
-        lastSegment = segment
-    }
-
-    return newSegments
-}
-
-export function stripSegmentTypes(segments: SegmentInfo[], types: SegmentType[]): SegmentInfo[] {
-    return segments.filter(segment => !types.includes(segment.type))
-}
-
+const pathIdVariableHolder = '%%VARIABLE%%'
 
 export function recursivelyFindFiles(
     dir: string,
-    ignoredFilePatterns: RegExp[],
     maxDepth?: number | 10,
     depth?: number | 0,
 ): string[] {
@@ -103,9 +22,8 @@ export function recursivelyFindFiles(
         const filePath = path.join(dir, file)
 
         if (fs.statSync(filePath).isDirectory()) {
-            foundFiles.push(...recursivelyFindFiles(filePath, ignoredFilePatterns, maxDepth, depth + 1))
+            foundFiles.push(...recursivelyFindFiles(filePath, maxDepth, depth + 1))
         } else {
-            if (ignoredFilePatterns.some(pattern => filePath.match(pattern))) continue
             foundFiles.push(filePath)
         }
     }
@@ -113,7 +31,8 @@ export function recursivelyFindFiles(
     return foundFiles;
 }
 
-export const getRouteSegments = (_path: string): SegmentInfo[] => {
+
+export const getRouteSegments = (_path: string, options: RemixKissRoutesOptions): SegmentInfo[] => {
 
     // check if path contains pathIdVariableHolder if so,throw error
     if (_path.includes(pathIdVariableHolder)) throw new Error(`Path ${_path} contains ${pathIdVariableHolder} which is a reserved variable holder`)
@@ -134,12 +53,19 @@ export const getRouteSegments = (_path: string): SegmentInfo[] => {
 
     // save the current segment to the list and reset the segment
     const commitSegment = (newType?: SegmentType) => {
-        // if SEGMENT.value ends with FLATTEN, then we can skip this
-        if (SEGMENT.value !== '' && !SEGMENT.value.endsWith(parserChar.FLATTEN)) segments.push(SEGMENT);
+        // if SEGMENT.value ends with FLATTEN then SEGMENT.type = HIDDEN
+        if (SEGMENT.value.endsWith((options.flattenCharacter ?? parserChar.FLATTEN))) SEGMENT.type = SegmentType.HIDDEN;
+        if (SEGMENT.value === '' && SEGMENT.type === SegmentType.PARAM) SEGMENT.type = SegmentType.SPLAT;
+
+        if (SEGMENT.value !== '' || SEGMENT.type === SegmentType.SPLAT) {
+            segments.push(SEGMENT);
+        }
+
         SEGMENT = {
             value: '',
             type: newType || SegmentType.PLAIN
         } as SegmentInfo;
+        STATE = parserState.IN_PLAIN;
     }
 
     // add a delimiter to the list
@@ -161,12 +87,11 @@ export const getRouteSegments = (_path: string): SegmentInfo[] => {
         if (char === '*') throw new Error('Cannot use "*" in path ' + _path);
 
 
-        if ((char === path.sep || char === parserChar.DOT) && STATE !== parserState.IN_IGNORE) {
+        if (char === path.sep || (char === (options.delimiterCharacter ?? parserChar.DOT) && STATE !== parserState.IN_IGNORE)) {
             // this is a path separator, if we're still at the START state, then we can skip this 
             if (STATE === parserState.START) continue;
 
-            // if SEGMENT is empty, then we can skip this
-            if (SEGMENT.value !== '') commitSegment()
+            commitSegment()
             addDelimiter(char)
             continue;
         }
@@ -185,14 +110,11 @@ export const getRouteSegments = (_path: string): SegmentInfo[] => {
         }
 
         if (char === parserChar.IGNORE_START) {
-            if (STATE === parserState.IN_OPTIONAL) {
-                throw new Error('Cannot nest optional segments in ' + path);
-            }
             STATE = parserState.IN_IGNORE;
             continue;
         }
 
-        if (STATE === parserState.IN_PARAM || STATE === parserState.IN_OPTIONAL_PARAM) {
+        if (STATE === parserState.IN_PARAM) {
             // check this char to see if it's a valid param char, a-z, A-Z, 0-9
             if (char.match(/[a-zA-Z0-9_]/)) {
                 SEGMENT.value += char;
@@ -204,28 +126,13 @@ export const getRouteSegments = (_path: string): SegmentInfo[] => {
         }
 
 
-        if (char === parserChar.PARAM) {
+        if (char === (options.variableCharacter ?? parserChar.PARAM)) {
             // flush the current segment
             commitSegment()
 
-            if (STATE === parserState.IN_OPTIONAL) {
-                SEGMENT.type = SegmentType.OPTIONAL_PARAM;
-                STATE = parserState.IN_OPTIONAL_PARAM;
-            } else {
-                SEGMENT.type = SegmentType.PARAM;
-                STATE = parserState.IN_PARAM;
-            }
-            continue;
-        }
+            SEGMENT.type = SegmentType.PARAM;
+            STATE = parserState.IN_PARAM;
 
-        if (char === parserChar.OPTIONAL_START) {
-            STATE = parserState.IN_OPTIONAL;
-            continue;
-        }
-
-        if (char === parserChar.OPTIONAL_END) {
-            commitSegment()
-            STATE = parserState.IN_PLAIN;
             continue;
         }
 
@@ -239,24 +146,76 @@ export const getRouteSegments = (_path: string): SegmentInfo[] => {
     return segments;
 }
 
-export const adoptRoutes = (routes: RouteInfo[]): RouteInfo[] => {
+
+export const getCollisionHash = (segments: SegmentInfo[]): string => {
+    return segments
+        .map(segment => {
+            if (segment.type === SegmentType.PARAM) return pathIdVariableHolder
+            if (segment.type === SegmentType.SPLAT) return '%%SPLAT%%'
+            if (segment.type === SegmentType.DELIMITER) return undefined
+            if (segment.type === SegmentType.HIDDEN) return undefined
+            return segment.value
+        })
+        .filter(Boolean)
+        .join('/')
+}
+
+export const getRouteId = (segments: SegmentInfo[]): string => {
+    return segments
+        // .filter((segment, index, self) => !(segment.type === SegmentType.DELIMITER && self[index - 1]?.type === SegmentType.HIDDEN)) // remove delimiters that follow hidden segments
+        .map(segment => {
+            if (segment.type === SegmentType.PARAM || segment.type === SegmentType.SPLAT) return '$' + segment.value
+            if (segment.type === SegmentType.DELIMITER) return '/'
+            return segment.value
+        })
+        .filter(Boolean)
+        .join('')
+}
+
+export const getRoutePath = (segments: SegmentInfo[], options: RemixKissRoutesOptions): string => {
+    // if first element matches options.routes, remove it
+    if (options.routes.startsWith(segments[0]?.value)) segments.shift()
+
+    // if last element is index, remove it
+    if (segments[segments.length - 1]?.value === options.indexFileName) segments.pop()
+
+    // if last element is _layout, remove it
+    if (segments[segments.length - 1]?.value === options.layoutFileName) segments.pop()
+
+    // if there's 2 delimiters in a row, or a delimiter followed by a hidden, remove it
+    segments = segments.filter((segment, index, self) => {
+        if (segment.type === SegmentType.DELIMITER && self[index - 1]?.type === SegmentType.DELIMITER) return false
+        if (segment.type === SegmentType.DELIMITER && self[index - 1]?.type === SegmentType.HIDDEN) return false
+        return true
+    })
+
+    if (segments.length === 0) return ''
+
+    return segments.map(segment => {
+        if (segment.type === SegmentType.PARAM) return ':' + segment.value
+        if (segment.type === SegmentType.SPLAT) return '*'
+        if (segment.type === SegmentType.DELIMITER) return '/'
+        if (segment.type === SegmentType.HIDDEN) return undefined
+        return segment.value
+    }).filter(Boolean).join('')
+}
+
+export const adoptRoutes = (routes: InternalConfigRoute[]): InternalConfigRoute[] => {
 
     for (const route of routes) {
-        let segments = route.segments.slice(0);
-        while (!route.parent) {
-            const layoutId = getFileId([
+        let segments = Array.from(route.segments);
+        while (!route.parentId) {
+            const layoutId = getRouteId([
                 ...segments,
                 { value: '_layout', type: SegmentType.PLAIN } as SegmentInfo
             ])
-            route.parent = routes.find(r => (r.fileId === layoutId && r.fileId !== route.fileId));
+            route.parentId = routes.find(r => (
+                r.id === layoutId &&
+                r.id !== route.id
+            ))?.id;
 
-            if (segments.length === 0 && !route.parent) {
-                route.parent = {
-                    fileId: 'root',
-                    filePath: '',
-                    urlPath: '',
-                    segments: [],
-                } as RouteInfo
+            if (segments.length === 0 && !route.parentId) {
+                route.parentId = 'root';
             }
 
             segments.pop();
@@ -264,20 +223,4 @@ export const adoptRoutes = (routes: RouteInfo[]): RouteInfo[] => {
     }
 
     return routes;
-}
-
-
-export const hasConflictingRoutes = (thisSegments: SegmentInfo[], map: Map<string, RouteInfo>): boolean => {
-
-    const fileId = getFileId(thisSegments);
-    const fileIdNoVars = getFileId(
-        stripDoubleDelimiters(
-            stripSegmentTypes(thisSegments, [SegmentType.OPTIONAL_PARAM])
-        )
-    )
-
-    if (map.has(fileId)) return true;
-    if (map.has(fileIdNoVars)) return true;
-
-    return false;
 }
