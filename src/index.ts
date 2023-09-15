@@ -2,7 +2,7 @@
 // _layout.tsx files define the layout of the page, they should contain a <Outlet /> component where child routes are rendered.
 // index.tsx files are dedicated for index routes
 // $ is used to define dynamic routes, for example /blog/$slug will match /blog/hello-world and /blog/another-post
-// + suffix is used to squish out a folder, i.e. make it invisible to the route, for example /legal-pages+/privacy-policy will match /privacy-policy 
+// _ prefix is used to squish out files and folder, i.e. make it invisible to the route, for example /_legal-pages/privacy-policy will match /privacy-policy 
 // . is used to define virtual folders, for example /users.$id.edit will match /users/123/edit
 // [] is used to escape special characters, for example /make-[$$$]-fast-online will match /make-$$$-fast-online
 // files not ending in .tsx, .jsx, .ts, .js are ignored, allowing you to keep assets and other files in the same folder as your routes.
@@ -17,10 +17,10 @@ const defaultOptions: RemixKissRoutesOptions = {
     routes: 'routes',
     caseSensitive: false,
     variableCharacter: '$',
-    flattenCharacter: '+',
+    pathlessCharacter: '_',
     delimiterCharacter: '.',
     layoutFileName: '_layout',
-    indexFileName: 'index',
+    indexFileName: '_index',
 }
 
 export type DefineRoutesFunction = (

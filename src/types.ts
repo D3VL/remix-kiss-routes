@@ -23,7 +23,7 @@ export enum parserChar {
     IGNORE_START = '[',
     IGNORE_END = ']',
     DOT = '.',
-    FLATTEN = '+',
+    PATHLESS = '_',
 }
 
 export type SegmentInfo = {
@@ -37,7 +37,7 @@ export type RemixKissRoutesOptions = {
     routes: string
     caseSensitive?: boolean
     variableCharacter?: string
-    flattenCharacter?: string
+    pathlessCharacter?: string
     delimiterCharacter?: string
     layoutFileName?: string
     indexFileName?: string

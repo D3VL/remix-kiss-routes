@@ -53,8 +53,10 @@ export const getRouteSegments = (_path: string, options: RemixKissRoutesOptions)
 
     // save the current segment to the list and reset the segment
     const commitSegment = (newType?: SegmentType) => {
-        // if SEGMENT.value ends with FLATTEN then SEGMENT.type = HIDDEN
-        if (SEGMENT.value.endsWith((options.flattenCharacter ?? parserChar.FLATTEN))) SEGMENT.type = SegmentType.HIDDEN;
+        // if SEGMENT.type = HIDDEN but the value is options.indexFileName or options.layoutFileName, then we need to set the type to PLAIN
+        if (SEGMENT.type === SegmentType.HIDDEN && (SEGMENT.value === options.indexFileName || SEGMENT.value === options.layoutFileName)) SEGMENT.type = SegmentType.PLAIN;
+
+        // if SEGMENT.type = PARAM but the value is empty, then we need to set the type to SPLAT
         if (SEGMENT.value === '' && SEGMENT.type === SegmentType.PARAM) SEGMENT.type = SegmentType.SPLAT;
 
         if (SEGMENT.value !== '' || SEGMENT.type === SegmentType.SPLAT) {
@@ -94,6 +96,12 @@ export const getRouteSegments = (_path: string, options: RemixKissRoutesOptions)
             commitSegment()
             addDelimiter(char)
             continue;
+        }
+
+        // if this is the first character of the segment, the character is an _ and we're in a PLAIN state then we are entering a hidden segment
+        if ((char === options.pathlessCharacter ?? parserChar.PATHLESS) && SEGMENT.value === '' && STATE === parserState.IN_PLAIN) {
+            SEGMENT.type = SegmentType.HIDDEN;
+            STATE = parserState.IN_IGNORE;
         }
 
         if (char === parserChar.IGNORE_END && STATE === parserState.IN_IGNORE) {
