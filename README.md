@@ -30,10 +30,10 @@ We want to be able to define our routes in a way that makes intuitive sense, map
 ├── _index.jsx
 ├── _layout.jsx
 ├── users
-│   ├── index.jsx
+│   ├── _index.jsx
 │   ├── _layout.jsx
 │   ├── $id
-│   │   ├── index.jsx
+│   │   ├── _index.jsx
 │   │   ├── _layout.jsx
 │   │   └── edit.jsx
 |   └── $id.view.jsx
@@ -44,8 +44,8 @@ We want to be able to define our routes in a way that makes intuitive sense, map
 ### 🧬 Routes Generated
 ```
 /_index.jsx -> /
-/users/index.jsx -> /users
-/users/$id/index.jsx -> /users/$id
+/users/_index.jsx -> /users
+/users/$id/_index.jsx -> /users/$id
 /users/$id/edit.jsx -> /users/$id/edit
 /users/$id.view.jsx -> /users/$id/view
 /_legal-pages/privacy-policy.jsx -> /privacy-policy
