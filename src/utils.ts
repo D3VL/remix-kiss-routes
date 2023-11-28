@@ -208,14 +208,14 @@ export const getRoutePath = (segments: SegmentInfo[], options: RemixKissRoutesOp
     }).filter(Boolean).join('')
 }
 
-export const adoptRoutes = (routes: InternalConfigRoute[]): InternalConfigRoute[] => {
+export const adoptRoutes = (routes: InternalConfigRoute[], options: RemixKissRoutesOptions): InternalConfigRoute[] => {
 
     for (const route of routes) {
         let segments = Array.from(route.segments);
         while (!route.parentId) {
             const layoutId = getRouteId([
                 ...segments,
-                { value: '_layout', type: SegmentType.PLAIN } as SegmentInfo
+                { value: options.layoutFileName, type: SegmentType.PLAIN } as SegmentInfo
             ])
             route.parentId = routes.find(r => (
                 r.id === layoutId &&

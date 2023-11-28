@@ -66,7 +66,7 @@ export default function kissRoutes(defineRoutes: DefineRoutesFunction, userOptio
         } as InternalConfigRoute);
     }
 
-    const adopted = adoptRoutes(Array.from(configRoutes.values()));
+    const adopted = adoptRoutes(Array.from(configRoutes.values()), options);
 
     const doDefineRoutes = (defineRoute: DefineRouteFunction, parentId?: string) => {
         const parent = adopted.find(route => route.id === parentId) ?? {
