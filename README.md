@@ -22,6 +22,7 @@ We want to be able to define our routes in a way that makes intuitive sense, map
 - You can escape special characters in the file path using `[]`, eg: `/make-[$$$]-fast-online.tsx` would become `/make-$$$-fast-online`
 - Files and folders prefixed with an `_` become invisible, allowing for folder organization without affecting the route path eg: `/_legal-pages/privacy-policy.tsx` would become `/privacy-policy`
 - Files not ending in `.jsx`, `.tsx`, `.js`, `.ts` are ignored, allowing you to keep assets and other files in the same folder as your routes.
+- Break out of a layout using `parentRouteId` magic comment or export, see [Break out of a layout](#-break-out-of-a-layout)
 
 ## 🔮 Example
 
@@ -88,3 +89,24 @@ const RemixKissRoutesOptions = {
     indexFileName: '_index', // the name of the index file
 }
 ```
+
+### 🌟 Break out of a layout
+Sometimes you may want a child route to break out of a parents layout, for example you may want to have a login page that doesn't have the websites layout applied to it.
+
+To do this you can use the `parentRouteId` magic comment or export in your route or layout file.
+If used within a layout file, it will apply to all child routes to that layout. If used within a route file, it will only apply to that route.
+
+```jsx
+// @parentRouteId routes/_layout
+/* @parentRouteId routes/_layout */
+export const parentRouteId = 'routes/_layout'
+```
+
+You can even target `root` so there's no `_layout` files applied.
+```jsx
+// @parentRouteId root
+/* @parentRouteId root */
+export const parentRouteId = 'root'
+```
+
+The value used for `parentRouteId` is the routeId, the same value you'd use inside `useRouteLoaderData` in Remix.

@@ -212,6 +212,20 @@ export const adoptRoutes = (routes: InternalConfigRoute[], options: RemixKissRou
 
     for (const route of routes) {
         let segments = Array.from(route.segments);
+
+        const specifiedParentId = findSpecifiedParentId(path.join(process.cwd(), options.app, route.file));
+
+        // if specifiedParentId is set, check it's valid
+        // this can be set by the user in the route file using the parentRouteId 
+        if (specifiedParentId) {
+            const parentRoute = routes.find(r => r.id === specifiedParentId);
+            if (parentRoute || specifiedParentId === 'root') {
+                route.parentId = specifiedParentId;
+            } else {
+                console.warn(`Route ${route.file} exports a parentRouteId of ${specifiedParentId} which does not exist, this will be ignored.`);
+            }
+        }
+
         while (!route.parentId) {
             const layoutId = getRouteId([
                 ...segments,
@@ -231,4 +245,36 @@ export const adoptRoutes = (routes: InternalConfigRoute[], options: RemixKissRou
     }
 
     return routes;
+}
+
+export const findSpecifiedParentId = (file: string): string | null => {
+    // loads the file, checking for the export of parentRouteId
+    try {
+        const fileData = fs.readFileSync(file, 'utf-8');
+
+        // search for
+        //   // @parentRouteId: <id>
+        //   // @parentRouteId: "<id>"
+        //   // @parentRouteId: '<id>'
+        //   // @parentRouteId: `<id>`
+        //   // @parentRouteId <id>
+        //   /* @parentRouteId: <id> */
+        //   /* @parentRouteId: "<id>" */
+        //   /* @parentRouteId: '<id>' */
+        //   /* @parentRouteId: `<id>` */
+        //   /* @parentRouteId <id> */
+        //   export const parentRouteId = <id>
+        //   export const parentRouteId = "<id>"
+        //   export const parentRouteId = '<id>'
+        //   export const parentRouteId = `<id>`
+
+        const regex = /(?:(?:\/\/|\/\*)\s*@|\bexport\s(?:const|var|let)\s)parentRouteId\s*[ :=]\s*[`'"]?([^`'"\s]+)[`'"]?/g
+        const match = regex.exec(fileData);
+        if (match) return match[1];
+
+    } catch (error) {
+        // do nothing, we'll return null
+    }
+
+    return null;
 }
